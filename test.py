@@ -13,7 +13,7 @@ from airtest_helper.core import DeviceProxy, DeviceApi
 
 
 def test_adb():
-    phone = DeviceProxy(device="192.168.9.97", port=5555, cap_type='adb', enable_debug=False, enable_log=False,
+    phone = DeviceProxy(device="192.168.9.97", port=5555, cap_type='adb', enable_debug=True, enable_log=True,
                         loglevel="info")
     # ph = Phone(device_id="S2D0219126003408", cap_type='adb', enable_debug=True, enable_log=True, loglevel="error")
     api = DeviceApi(device=phone)
