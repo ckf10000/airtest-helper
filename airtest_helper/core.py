@@ -11,26 +11,26 @@
 """
 import re
 import shlex
-import airtest
 import warnings
 import subprocess
 import typing as t
 from poco.proxy import UIObjectProxy
 from airtest.utils.transform import TargetPos
+from airtest_helper.log import logger, init_logging
 from poco.drivers.android.uiautomation import AndroidUiautomationPoco
 from airtest.core.api import auto_setup, device, Template, touch, find_all, exists
 
+from airtest_helper.settings import Settings as st
 # from airtest_helper.lib import get_ui_object_proxy_attr
 from airtest_helper.dir import get_project_path, get_logs_dir
-from airtest_helper.log import logger, reset_airtest_loglevel
 from airtest_helper.platform import iOS_PLATFORM, ANDROID_PLATFORM, WINDOWS_PLATFORM
 from airtest_helper.setup import cli_setup, get_adbcap_url, get_javacap_url, get_minicap_url
 
 warnings.filterwarnings("ignore", category=UserWarning,
                         message="Currently using ADB touch, the efficiency may be very low.")
 
-
 __all__ = ['stop_app', 'get_screen_size_via_adb', 'get_connected_devices', 'adb_touch', 'DeviceProxy', 'DeviceApi']
+
 
 def stop_app(app_name, device_id: str, timeout=5) -> None:
     # 构造ADB命令
@@ -117,7 +117,7 @@ class DeviceProxy(object):
         self.__platform = platform
         self.__enable_log = enable_log
         self.__enable_debug = enable_debug
-        reset_airtest_loglevel(loglevel=loglevel)
+        init_logging(loglevel=loglevel)
         self.__devices_conn = self.__format_conn_params(cap_type=self.__cap_type, device_id=self.__device_id)
         self.__init_device()
 
@@ -158,10 +158,9 @@ class DeviceProxy(object):
     def __init_device(self) -> None:
         if not cli_setup():
             if self.__enable_log is True:
-                log_dir = get_logs_dir()
-                airtest.utils.compat.DEFAULT_LOG_DIR = log_dir
-                airtest.core.settings.Settings.LOG_FILE = "{}.log".format(self.__device_id)
-            airtest.core.settings.Settings.DEBUG = self.__enable_debug
+                st.LOG_DIR = get_logs_dir()
+                st.LOG_FILE = "{}.log".format(self.__device_id)
+            st.DEBUG = self.__enable_debug
             project_root = get_project_path()
             auto_setup(
                 project_root,
