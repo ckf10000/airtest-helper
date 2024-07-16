@@ -16,82 +16,23 @@ import warnings
 import subprocess
 import typing as t
 from poco.proxy import UIObjectProxy
-from airtest.cli.parser import cli_setup
 from airtest.utils.transform import TargetPos
-from airtest.core.android.constant import TOUCH_METHOD, CAP_METHOD
 from poco.drivers.android.uiautomation import AndroidUiautomationPoco
-from airtest.core.api import auto_setup, device, Template, touch, find_all, connect_device
+from airtest.core.api import auto_setup, device, Template, touch, find_all, exists
 
-from airtest_helper.decorator import runtime_exception
+from airtest_helper.log import logger
+# from airtest_helper.lib import get_ui_object_proxy_attr
 from airtest_helper.dir import get_project_path, get_logs_dir
-from airtest_helper.log import logger, reset_airtest_loglevel
-from airtest_helper.platform import ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM
+from airtest_helper.platform import iOS_PLATFORM, ANDROID_PLATFORM, WINDOWS_PLATFORM
+from airtest_helper.setup import cli_setup, get_adbcap_url, get_javacap_url, get_minicap_url
 
 warnings.filterwarnings("ignore", category=UserWarning,
                         message="Currently using ADB touch, the efficiency may be very low.")
 
-timeout = 10
 
-
-def adb_disconnect_device(device_ip: str = None, timeout=timeout):
+def stop_app(app_name, device_id: str, timeout=5) -> None:
     # 构造ADB命令
-    adb_cmd = "adb.exe disconnect {}".format(device_ip)
-    # 将命令字符串分割成列表
-    cmd_list = shlex.split(adb_cmd)
-    try:
-        # 执行ADB命令并设置超时时间
-        subprocess.run(cmd_list, timeout=timeout, check=True)
-        logger.info("execute cmd: {}".format(adb_cmd))
-    except subprocess.TimeoutExpired:
-        logger.error("Timeout occurred. Failed to adb disconnect to device {}".format(device_ip))
-    except subprocess.CalledProcessError:
-        logger.error("Failed to adb disconnect to device {}".format(device_ip))
-    except Exception as e:
-        logger.error("An error occurred: {}".format(e))
-
-
-def adb_enable_remote_access(port: int = 5555, timeout=timeout):
-    # 构造ADB命令
-    adb_cmd = "adb.exe tcpip {}".format(port)
-    # 将命令字符串分割成列表
-    cmd_list = shlex.split(adb_cmd)
-    try:
-        # 执行ADB命令并设置超时时间
-        subprocess.run(cmd_list, timeout=timeout, check=True)
-        logger.info("execute cmd: {}".format(adb_cmd))
-    except subprocess.TimeoutExpired:
-        logger.error("Timeout occurred. Failed to adb tcpip {}".format(port))
-    except subprocess.CalledProcessError:
-        logger.error("Failed to adb tcpip {}".format(port))
-    except Exception as e:
-        logger.error("An error occurred: {}".format(e))
-
-
-def adb_connect_device(device_ip: str, timeout=timeout):
-    # 构造ADB命令
-    adb_cmd = "adb.exe connect {}".format(device_ip)
-    # 将命令字符串分割成列表
-    cmd_list = shlex.split(adb_cmd)
-    try:
-        # 执行ADB命令并设置超时时间
-        subprocess.run(cmd_list, timeout=timeout, check=True)
-        logger.info("execute cmd: {}".format(adb_cmd))
-    except subprocess.TimeoutExpired:
-        logger.error("Timeout occurred. Failed to adb connect to device {}".format(device_ip))
-    except subprocess.CalledProcessError:
-        logger.error("Failed to adb connect to device {}".format(device_ip))
-    except Exception as e:
-        logger.error("An error occurred: {}".format(e))
-
-
-def adb_reconnect_device(device_ip: str, timeout=timeout):
-    adb_disconnect_device(device_ip=device_ip, timeout=timeout)
-    adb_connect_device(device_ip=device_ip, timeout=timeout)
-
-
-def stop_app(app_name: str, timeout=timeout):
-    # 构造ADB命令
-    adb_cmd = "adb.exe shell am force-stop {}".format(app_name)
+    adb_cmd = "adb.exe -s {} shell am force-stop {}".format(device_id, app_name)
     # 将命令字符串分割成列表
     cmd_list = shlex.split(adb_cmd)
     try:
@@ -106,110 +47,172 @@ def stop_app(app_name: str, timeout=timeout):
         logger.error("An error occurred: {}".format(e))
 
 
-def get_screen_size_via_adb():
+def get_screen_size_via_adb(device_id: str) -> t.Tuple[int, int]:
     # 使用ADB命令获取设备屏幕大小
-    width = -999  # 异常值
-    height = -999  # 异常值
     try:
-        output = subprocess.check_output(['adb', 'shell', 'wm', 'size']).decode('utf-8')
+        output = subprocess.check_output(['adb', '-s', device_id, 'shell', 'wm', 'size']).decode('utf-8')
         match = re.search(r'Physical size: (\d+)x(\d+)', output)
         if match:
             width = int(match.group(1))
             height = int(match.group(2))
+            return width, height
     except subprocess.CalledProcessError as e:
         logger.error("Error: ADB command failed: {}".format(e))
-    return width, height
+    return 0, 0
 
 
-class Phone(object):
+def get_connected_devices() -> list:
+    devices = list()
+    try:
+        # 执行 adb 命令获取设备列表信息
+        result = subprocess.run(['adb', 'devices'], capture_output=True, text=True)
+        # 检查是否成功执行 adb 命令
+        if result.returncode == 0:
+            # 解析 adb 输出，获取设备列表信息
+            output_lines = result.stdout.strip().split('\n')
+            # 第一行是标题，需要跳过
+            devices = [line.split('\t')[0] for line in output_lines[1:] if line.strip()]
+        else:
+            logger.error("Failed to execute adb command.")
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
+    return devices
+
+
+def adb_touch(v: tuple, device_id: str, timeout: int = 10) -> None:
+    """
+    adb 模拟操作点击，规避有些UI上无法直接点击
+    """
+    adb_cmd = "adb.exe -P 5037 -s {} shell input tap {} {}".format(device_id, v[0], v[1])
+    # 将命令字符串分割成列表
+    cmd_list = shlex.split(adb_cmd)
+    try:
+        # 执行ADB命令并设置超时时间
+        subprocess.run(cmd_list, timeout=timeout, check=True)
+        logger.info("execute cmd: ", adb_cmd)
+    except subprocess.TimeoutExpired:
+        logger.error("Timeout occurred,Failed to execute adb cmd.")
+    except subprocess.CalledProcessError:
+        logger.error("Failed to execute adb cmd.")
+    except Exception as e:
+        logger.error("An error occurred: {}".format(e))
+
+
+class DeviceProxy(object):
 
     def __init__(
             self,
-            device_id: str = "127.0.0.1",
+            device: str,
             port: int = 0,
-            platform: str = ANDROID_PLATFORM,
+            cap_type: str = "adb",
+            enable_log: bool = True,
             enable_debug: bool = False,
-            enabled_log: bool = False,
-            loglevel: str = "error",
-            force_restart: bool = False,
-            screenshot_each_action: bool = False,
-            use_airtest_input: bool = True
+            platform: str = ANDROID_PLATFORM
     ) -> None:
-        self.__port = port
-        self.__ip = device_id
-        self.__platform = platform or ANDROID_PLATFORM
-        self.__device_id = "{}:{}".format(device_id, port) if port > 0 else device_id  # 可以是字符串标识或者IP形式
+        self.__device_id = self.__format_device_id(device=device, port=port)
+        self.__cap_type = cap_type
+        self.__platform = platform
+        self.__enable_log = enable_log
         self.__enable_debug = enable_debug
-        self.__enabled_log = enabled_log
+        self.__devices_conn = self.__format_conn_params(cap_type=self.__cap_type, device_id=self.__device_id)
         self.__init_device()
-        self.dev = device()
-        reset_airtest_loglevel(loglevel=loglevel)
-        self.poco = AndroidUiautomationPoco(
-            use_airtest_input=use_airtest_input, screenshot_each_action=screenshot_each_action,
-            force_restart=force_restart
-        )
 
-    def __get_connect_params(self) -> str:
-        return "{}://127.0.0.1:5037/{}?cap_method={}&touch_method={}".format(
-            self.__platform, self.__device_id, CAP_METHOD.MINICAP, TOUCH_METHOD.ADBTOUCH
-        )
+    @property
+    def device_id(self) -> str:
+        return self.__device_id
+
+    @property
+    def enable_debug(self) -> bool:
+        return self.__enable_debug
+
+    @property
+    def enable_log(self) -> bool:
+        return self.__enable_log
+
+    @property
+    def platform(self) -> str:
+        return self.__platform
+
+    @property
+    def cap_type(self) -> str:
+        return self.__cap_type
+
+    @classmethod
+    def __format_device_id(cls, device: str, port: int) -> str:
+        return "{}:{}".format(device, port) if port > 0 else device
+
+    @classmethod
+    def __format_conn_params(cls, cap_type: str, device_id: str) -> list:
+        if cap_type == "adb":
+            devices_conn = get_adbcap_url(device_id=device_id)
+        elif cap_type == "java":
+            devices_conn = get_javacap_url(device_id=device_id)
+        else:
+            devices_conn = get_minicap_url(device_id=device_id)
+        return [devices_conn]
 
     def __init_device(self) -> None:
         if not cli_setup():
-            project_root = get_project_path()
-            log_path = get_logs_dir(is_created=False)
-            airtest.utils.compat.DEFAULT_LOG_DIR = log_path
+            if self.__enable_log is True:
+                log_dir = get_logs_dir()
+                airtest.utils.compat.DEFAULT_LOG_DIR = log_dir
+                airtest.core.settings.Settings.LOG_FILE = "{}.log".format(self.__device_id)
             airtest.core.settings.Settings.DEBUG = self.__enable_debug
-            airtest.core.settings.Settings.LOG_FILE = "{}.log".format(self.__device_id)
-            if self.__port > 0:
-                adb_enable_remote_access(port=self.__port, timeout=5)
-                adb_reconnect_device(device_ip=self.__ip, timeout=5)
-                if self.__platform == ANDROID_PLATFORM:
-                    connect_device(self.__get_connect_params())
-                else:
-                    raise ValueError("暂时还不支持非android平台的手机初始化...")
-            else:
-                auto_setup(
-                    project_root,
-                    logdir=self.__enabled_log,
-                    devices=[self.__get_connect_params()],
-                    project_root=project_root,
-                    compress=12
-                )
+            project_root = get_project_path()
+            auto_setup(
+                project_root,
+                logdir=self.enable_log,
+                devices=self.__devices_conn,
+                project_root=project_root,
+                compress=12
+            )
 
-    @runtime_exception
-    def shell(self, cmd: str) -> str:
+    @property
+    def poco_proxy(self) -> AndroidUiautomationPoco:
+        return AndroidUiautomationPoco(use_airtest_input=True, screenshot_each_action=False, force_restart=True)
+
+    @property
+    def phone(self):
+        return device()
+
+
+class DeviceApi(object):
+    __timeout = 10
+
+    def __init__(self, device: DeviceProxy):
+        self.dev = device.phone
+        self.poco = device.poco_proxy
+        self.platform = device.platform
+        self.device_id = device.device_id
+
+    def shell(self, cmd: str) -> None:
         """
         在设备上执行shell命令
         platform: Android
         """
         result = None
-        if self.__platform == ANDROID_PLATFORM:
+        if self.platform == ANDROID_PLATFORM:
             result = self.dev.shell(cmd)
             result = result.decode() if isinstance(result, bytes) else result
         return result or None
 
-    @runtime_exception
     def start_app(self, app_name: str) -> None:
         """
         在设备上启动目标应用
         platform: Android, iOS
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM):
             result = self.dev.start_app(app_name)
         return result or None
 
-    @runtime_exception
     def stop_app(self, app_name: str) -> None:
         """
         终止目标应用在设备上的运行
         platform: Android, iOS
         """
-        result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM):
-            result = self.dev.stop_app(app_name)
-        return result or None
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM):
+            stop_app(app_name=app_name, device_id=self.device_id, timeout=self.__timeout)
 
     @staticmethod
     def get_cv_template(
@@ -247,7 +250,6 @@ class Phone(object):
             scale_step=scale_step,
         )
 
-    @runtime_exception
     def snapshot(
             self, filename: str, msg: str = "", quality: int = None, max_size: int = None
     ) -> t.Dict:
@@ -261,7 +263,7 @@ class Phone(object):
         platform: Android, iOS, Windows
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # Set the screenshot quality to 30
             # ST.SNAPSHOT_QUALITY = 30
             # Set the screenshot size not to exceed 600*600
@@ -276,29 +278,26 @@ class Phone(object):
             result = self.dev.snapshot(filename=filename, msg=msg, quality=quality, max_size=max_size)
         return result or None
 
-    @runtime_exception
     def wake(self) -> None:
         """
         唤醒并解锁目标设备
         platform: Android
         """
         result = None
-        if self.__platform == ANDROID_PLATFORM:
+        if self.platform == ANDROID_PLATFORM:
             result = self.dev.wake()
         return result or None
 
-    @runtime_exception
     def home(self) -> None:
         """
         返回HOME界面
         platform: Android, iOS
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, iOS_PLATFORM):
             result = self.dev.home()
         return result or None
 
-    @runtime_exception
     def touch(self, v: tuple | Template, times: int = 1, **kwargs) -> None:
         """
         在当前设备画面上进行一次点击
@@ -309,7 +308,7 @@ class Phone(object):
         platform: Android, iOS, Windows
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # temp = Template(r"tpl1606730579419.png", target_pos=5)
             # self.device.touch(temp, times=2)
             # self.device.touch((100, 100), times=2)
@@ -317,27 +316,13 @@ class Phone(object):
             result = touch(v=v, times=times, **kwargs)
         return result or None
 
-    def adb_touch(self, v: tuple, timeout: int = timeout) -> None:
+    def adb_touch(self, v: tuple) -> None:
         """
         adb 模拟操作点击，规避有些UI上无法直接点击
         """
-        adb_cmd = "adb.exe -P 5037 -s {} shell input tap {} {}".format(self.__platform, v[0], v[1])
-        # 将命令字符串分割成列表
-        cmd_list = shlex.split(adb_cmd)
-        try:
-            # 执行ADB命令并设置超时时间
-            subprocess.run(cmd_list, timeout=timeout, check=True)
-            logger.info("execute cmd: ", adb_cmd)
-        except subprocess.TimeoutExpired:
-            logger.error("Timeout occurred,Failed to execute adb cmd.")
-        except subprocess.CalledProcessError:
-            logger.error("Failed to execute adb cmd.")
-        except Exception as e:
-            logger.error("An error occurred: {}".format(e))
-        # touch_proxy = TouchProxy.auto_setup(self.device.adb, ori_transformer=self.device._touch_point_by_orientation)
-        # touch_proxy.touch(v)
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM):
+            adb_touch(v=v, device_id=self.device_id, timeout=self.__timeout)
 
-    @runtime_exception
     def swipe(self, v1, v2: tuple = None, duration: float = None, **kwargs) -> None:
         """
         在当前设备画面上进行一次滑动操作
@@ -348,7 +333,7 @@ class Phone(object):
         platform: Android, iOS, Windows
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # self.device.swipe(Template(r"tpl1606814865574.png"), vector=[-0.0316, -0.3311])
             # self.device.swipe((100, 100), (200, 200))
             # self.device.swipe((100, 100), (200, 200), duration=1, steps=6)
@@ -356,16 +341,15 @@ class Phone(object):
             result = self.dev.swipe(p1=v1, p2=v2, duration=duration, **kwargs)
         return result or None
 
-    @runtime_exception
-    def key_event(self, keyname: str, **kwargs) -> None:
+    def keyevent(self, keyname: str, **kwargs) -> None:
         """
-        在设备上执行key_event按键事件
+        在设备上执行keyevent按键事件
         keyname str: 平台相关的按键名称
         kwargs dict: 平台相关的参数 kwargs，请参考对应的平台接口文档
         platform: Android, iOS, Windows
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # self.device.keyevent("HOME")
             # The constant corresponding to the home key is 3
             # self.device.keyevent("3")  # same as keyevent("HOME")
@@ -374,7 +358,6 @@ class Phone(object):
             result = self.dev.keyevent(keyname=keyname, **kwargs)
         return result or None
 
-    @runtime_exception
     def text(self, text: str, enter: bool = True, **kwargs) -> None:
         """
         在目标设备上输入文本，文本框需要处于激活状态
@@ -383,7 +366,7 @@ class Phone(object):
         platform: Android, iOS, Windows
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # self.device.text("test")
             # self.device.text("test", enter=False)
             # 在Android上，有时你需要在输入完毕后点击搜索按钮
@@ -393,7 +376,6 @@ class Phone(object):
             result = self.dev.text(text=text, enter=enter, **kwargs)
         return result or None
 
-    @runtime_exception
     def sleep(self, secs: float = 1.0) -> None:
         """
         设置一个等待sleep时间，它将会被显示在报告中
@@ -401,12 +383,11 @@ class Phone(object):
         platform: Android, iOS, Windows
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # self.device.sleep(1)
             result = self.dev.sleep(secs=secs)
         return result or None
 
-    @runtime_exception
     def wait(
             self,
             v: Template,
@@ -424,7 +405,7 @@ class Phone(object):
         platform: Android, iOS, Windows
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # self.device.wait(Template(r"tpl1606821804906.png"))  # timeout after ST.FIND_TIMEOUT
             # find Template every 3 seconds, timeout after 120 seconds
             # self.device.wait(Template(r"tpl1606821804906.png"), timeout=120, interval=3)
@@ -435,26 +416,24 @@ class Phone(object):
             result = self.dev.wait(v=v, timeout=timeout, interval=interval, intervalfunc=intervalfunc)
         return result or None
 
-    @runtime_exception
-    def exists(self, v: Template) -> t.Any:
+    def exists(self, v: Template) -> bool:
         """ "
         检查设备上是否存在给定目标
         v Template: 要检查的目标
         return: 如果未找到目标，则返回False，否则返回目标的坐标
         platform: Android, iOS, Windows
         """
-        result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        result = False
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # if self.device.exists(Template(r"tpl1606822430589.png")):
             #    self.device.touch(Template(r"tpl1606822430589.png"))
             # 因为 exists() 会返回坐标，我们可以直接点击坐标来减少一次图像查找
             # pos = self.device.exists(Template(r"tpl1606822430589.png"))
             # if pos:
             #    self.device.touch(pos)
-            result = self.dev.exists(v=v)
-        return result or None
+            result = exists(v=v)
+        return result
 
-    @runtime_exception
     def find_all(self, v: Template) -> t.List:
         """
         在设备屏幕上查找所有出现的目标并返回其坐标列表
@@ -464,12 +443,11 @@ class Phone(object):
         platform: Android, iOS, Windows
         """
         result = list()
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # self.device.find_all(Template(r"tpl1607511235111.png"))
             result = find_all(v=v)
         return result if result else list()
 
-    @runtime_exception
     def get_clipboard(self) -> str:
         """
         从剪贴板中获取内容
@@ -477,13 +455,12 @@ class Phone(object):
         platform: Android, iOS, Windows
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # text = self.device.get_clipboard(wda_bundle_id="com.WebDriverAgentRunner.xctrunner")
             # print(text)
             result = self.dev.get_clipboard()
         return result or None
 
-    @runtime_exception
     def set_clipboard(self, content: str, *args, **kwargs) -> None:
         """
         设置剪贴板中的内容
@@ -493,13 +470,12 @@ class Phone(object):
         platform: Android, iOS, Windows
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # self.device.set_clipboard(content="content", wda_bundle_id="com.WebDriverAgentRunner.xctrunner")
             # print(self.device.get_clipboard())
             result = self.dev.set_clipboard(content=content, *args, **kwargs)
         return result or None
 
-    @runtime_exception
     def paste(self, *args, **kwargs) -> None:
         """
         粘贴剪贴板中的内容
@@ -508,15 +484,15 @@ class Phone(object):
         platform: Android, iOS, Windows
         """
         result = None
-        if self.__platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # self.device.set_clipboard("content")
             # will paste "content" to the device
             # self.device.paste()
             result = self.dev.paste(*args, **kwargs)
         return result or None
 
-    def get_po(self, d_type: str, name: str = '', text: str = '', desc: str = '', typeMatches: str = '',
-               nameMatches: str = '', textMatches: str = '', descMatches: str = '') -> UIObjectProxy:
+    def get_po(self, d_type: str, name: str = '', text: str = '', desc: str = '',
+               textMatches: str = '') -> UIObjectProxy:
         kwargs = dict()
         if d_type:
             kwargs["type"] = d_type
@@ -526,14 +502,8 @@ class Phone(object):
             kwargs["text"] = text
         if desc:
             kwargs["desc"] = desc
-        if typeMatches:
-            kwargs["typeMatches"] = typeMatches
-        if nameMatches:
-            kwargs["nameMatches"] = nameMatches
         if textMatches:
             kwargs["textMatches"] = textMatches
-        if descMatches:
-            kwargs["descMatches"] = descMatches
         return self.poco(**kwargs)
 
     def get_po_extend(
@@ -583,31 +553,9 @@ class Phone(object):
                 po_list.append(i)
         return po_list
 
-    @runtime_exception
-    def hide_keyword(self, file_name: str) -> None:
-        temp = self.get_cv_template(file_name=file_name)
-        hide_icon = self.find_all(v=temp)
-        if len(hide_icon) > 0:
-            logger.info("目前检测到键盘已打开，需要隐藏键盘，再做后续操作...")
-            self.touch(v=temp)
-        else:
-            hw_keyword = self.poco(type="terminal.widget.ImageView", name="com.terminal.systemui:id/back", desc="返回")
-            if hw_keyword.exists():
-                logger.info("目前检测到HW键盘已经打开，需要隐藏键盘，再做后续操作...")
-                hw_keyword.click()
-            else:
-                lg_keyword = self.poco(type="com.lge.ime.humaninterface.inputview.layout.HIGColoredEnterKey",
-                                       name="完成")
-                if lg_keyword.exists():
-                    logger.info("目前检测到LG键盘已经打开，需要隐藏键盘，再做后续操作...")
-                    lg_keyword.click()
-                else:
-                    logger.info("键盘已经隐藏，无需处理键盘...")
-
     # 获取元素在屏幕上的绝对坐标
-    @staticmethod
-    def get_abs_position(element: AndroidUiautomationPoco) -> t.Tuple:
-        screen_width, screen_height = get_screen_size_via_adb()
+    def get_abs_position(self, element: UIObjectProxy) -> t.Tuple:
+        screen_width, screen_height = get_screen_size_via_adb(device_id=self.device_id)
         relative_position = element.get_position()
         absolute_x = int(relative_position[0] * screen_width)
         absolute_y = int(relative_position[1] * screen_height)
@@ -616,7 +564,7 @@ class Phone(object):
     # 快捷滑屏
     def quick_slide_screen(self, duration: float = 0.5):
         # 获取屏幕尺寸
-        screen_width, screen_height = get_screen_size_via_adb()
+        screen_width, screen_height = get_screen_size_via_adb(device_id=self.device_id)
         # 定义起始点和终止点坐标
         start_x = screen_width // 2  # 屏幕中心点的横坐标
         start_y = screen_height // 2  # 屏幕中心点的纵坐标
