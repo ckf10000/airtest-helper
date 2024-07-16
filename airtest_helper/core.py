@@ -20,15 +20,17 @@ from airtest.utils.transform import TargetPos
 from poco.drivers.android.uiautomation import AndroidUiautomationPoco
 from airtest.core.api import auto_setup, device, Template, touch, find_all, exists
 
-from airtest_helper.log import logger
 # from airtest_helper.lib import get_ui_object_proxy_attr
 from airtest_helper.dir import get_project_path, get_logs_dir
+from airtest_helper.log import logger, reset_airtest_loglevel
 from airtest_helper.platform import iOS_PLATFORM, ANDROID_PLATFORM, WINDOWS_PLATFORM
 from airtest_helper.setup import cli_setup, get_adbcap_url, get_javacap_url, get_minicap_url
 
 warnings.filterwarnings("ignore", category=UserWarning,
                         message="Currently using ADB touch, the efficiency may be very low.")
 
+
+__all__ = ['stop_app', 'get_screen_size_via_adb', 'get_connected_devices', 'adb_touch', 'DeviceProxy', 'DeviceApi']
 
 def stop_app(app_name, device_id: str, timeout=5) -> None:
     # 构造ADB命令
@@ -105,6 +107,7 @@ class DeviceProxy(object):
             device: str,
             port: int = 0,
             cap_type: str = "adb",
+            loglevel: str = "error",
             enable_log: bool = True,
             enable_debug: bool = False,
             platform: str = ANDROID_PLATFORM
@@ -114,6 +117,7 @@ class DeviceProxy(object):
         self.__platform = platform
         self.__enable_log = enable_log
         self.__enable_debug = enable_debug
+        reset_airtest_loglevel(loglevel=loglevel)
         self.__devices_conn = self.__format_conn_params(cap_type=self.__cap_type, device_id=self.__device_id)
         self.__init_device()
 

@@ -21,6 +21,7 @@ setup(
     url='https://github.com/ckf10000/airtest-helper',
     packages=find_packages(),
     install_requires=[
+        'numpy==1.26.4',
         'airtest>=1.3.4',
         'pocoui>=1.0.94'
     ],
