@@ -19,11 +19,10 @@ def test_adb():
     # ph = Phone(device_id="S2D0219126003408", cap_type='adb', enable_debug=True, enable_log=True, loglevel="error")
     api = DeviceApi(device=phone)
     logger.info("\n{}\n".format(api.shell("ls")))
-    # print(ph.start_app("abc"))
-    # print(ph.stop_app("abc"))
-    # print(ph.wake())
-    # print(ph.home())
-    # ph.hide_keyword()
+    # print(api.start_app("abc"))
+    # print(api.stop_app("abc"))
+    # print(api.wake())
+    # print(api.home())
 
 
 if __name__ == '__main__':
