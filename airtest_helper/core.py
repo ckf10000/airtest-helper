@@ -10,94 +10,26 @@
 # ---------------------------------------------------------------------------------------------------------
 """
 import re
-import shlex
 import warnings
-import subprocess
 import typing as t
 from poco.proxy import UIObjectProxy
+from airtest_helper.log import init_logging
 from airtest.utils.transform import TargetPos
-from airtest_helper.log import logger, init_logging
 from poco.drivers.android.uiautomation import AndroidUiautomationPoco
 from airtest.core.api import auto_setup, device, Template, touch, find_all, exists
 
+from airtest_helper.setup import cli_setup
 from airtest_helper.settings import Settings as st
-# from airtest_helper.lib import get_ui_object_proxy_attr
+# from airtest_helper.libs.poco import get_ui_object_proxy_attr
 from airtest_helper.dir import get_project_path, get_logs_dir
+from airtest_helper.libs.android import stop_app, adb_touch, get_screen_size_via_adb
 from airtest_helper.platform import iOS_PLATFORM, ANDROID_PLATFORM, WINDOWS_PLATFORM
-from airtest_helper.setup import cli_setup, get_adbcap_url, get_javacap_url, get_minicap_url
+from airtest_helper.libs.android import get_adbcap_url, get_javacap_url, get_minicap_url
 
 warnings.filterwarnings("ignore", category=UserWarning,
                         message="Currently using ADB touch, the efficiency may be very low.")
 
-__all__ = ['stop_app', 'get_screen_size_via_adb', 'get_connected_devices', 'adb_touch', 'DeviceProxy', 'DeviceApi']
-
-
-def stop_app(app_name, device_id: str, timeout=5) -> None:
-    # 构造ADB命令
-    adb_cmd = "adb.exe -s {} shell am force-stop {}".format(device_id, app_name)
-    # 将命令字符串分割成列表
-    cmd_list = shlex.split(adb_cmd)
-    try:
-        # 执行ADB命令并设置超时时间
-        subprocess.run(cmd_list, timeout=timeout, check=True)
-        logger.info("execute cmd: {}".format(adb_cmd))
-    except subprocess.TimeoutExpired:
-        logger.error("Timeout occurred. Failed to stop the app.")
-    except subprocess.CalledProcessError:
-        logger.error("Failed to stop the app.")
-    except Exception as e:
-        logger.error("An error occurred: {}".format(e))
-
-
-def get_screen_size_via_adb(device_id: str) -> t.Tuple[int, int]:
-    # 使用ADB命令获取设备屏幕大小
-    try:
-        output = subprocess.check_output(['adb', '-s', device_id, 'shell', 'wm', 'size']).decode('utf-8')
-        match = re.search(r'Physical size: (\d+)x(\d+)', output)
-        if match:
-            width = int(match.group(1))
-            height = int(match.group(2))
-            return width, height
-    except subprocess.CalledProcessError as e:
-        logger.error("Error: ADB command failed: {}".format(e))
-    return 0, 0
-
-
-def get_connected_devices() -> list:
-    devices = list()
-    try:
-        # 执行 adb 命令获取设备列表信息
-        result = subprocess.run(['adb', 'devices'], capture_output=True, text=True)
-        # 检查是否成功执行 adb 命令
-        if result.returncode == 0:
-            # 解析 adb 输出，获取设备列表信息
-            output_lines = result.stdout.strip().split('\n')
-            # 第一行是标题，需要跳过
-            devices = [line.split('\t')[0] for line in output_lines[1:] if line.strip()]
-        else:
-            logger.error("Failed to execute adb command.")
-    except Exception as e:
-        logger.error(f"An error occurred: {e}")
-    return devices
-
-
-def adb_touch(v: tuple, device_id: str, timeout: int = 10) -> None:
-    """
-    adb 模拟操作点击，规避有些UI上无法直接点击
-    """
-    adb_cmd = "adb.exe -P 5037 -s {} shell input tap {} {}".format(device_id, v[0], v[1])
-    # 将命令字符串分割成列表
-    cmd_list = shlex.split(adb_cmd)
-    try:
-        # 执行ADB命令并设置超时时间
-        subprocess.run(cmd_list, timeout=timeout, check=True)
-        logger.info("execute cmd: ", adb_cmd)
-    except subprocess.TimeoutExpired:
-        logger.error("Timeout occurred,Failed to execute adb cmd.")
-    except subprocess.CalledProcessError:
-        logger.error("Failed to execute adb cmd.")
-    except Exception as e:
-        logger.error("An error occurred: {}".format(e))
+__all__ = ['DeviceProxy', 'DeviceApi']
 
 
 class DeviceProxy(object):
@@ -118,7 +50,8 @@ class DeviceProxy(object):
         self.__enable_log = enable_log
         self.__enable_debug = enable_debug
         init_logging(loglevel=loglevel)
-        self.__devices_conn = self.__format_conn_params(cap_type=self.__cap_type, device_id=self.__device_id)
+        self.__devices_conn = list()
+        self.__init_conn_params()
         self.__init_device()
 
     @property
@@ -145,15 +78,14 @@ class DeviceProxy(object):
     def __format_device_id(cls, device: str, port: int) -> str:
         return "{}:{}".format(device, port) if port > 0 else device
 
-    @classmethod
-    def __format_conn_params(cls, cap_type: str, device_id: str) -> list:
-        if cap_type == "adb":
-            devices_conn = get_adbcap_url(device_id=device_id)
-        elif cap_type == "java":
-            devices_conn = get_javacap_url(device_id=device_id)
-        else:
-            devices_conn = get_minicap_url(device_id=device_id)
-        return [devices_conn]
+    def __init_conn_params(self) -> None:
+        if self.__platform == ANDROID_PLATFORM:
+            if self.__cap_type == "adb":
+                self.__devices_conn = [get_adbcap_url(device_id=self.__device_id)]
+            elif self.__cap_type == "java":
+                self.__devices_conn = [get_javacap_url(device_id=self.__device_id)]
+            else:
+                self.__devices_conn = [get_minicap_url(device_id=self.__device_id)]
 
     def __init_device(self) -> None:
         if not cli_setup():
@@ -205,7 +137,7 @@ class DeviceApi(object):
         platform: Android, iOS
         """
         result = None
-        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM):
+        if self.platform in (ANDROID_PLATFORM, iOS_PLATFORM):
             result = self.dev.start_app(app_name)
         return result or None
 
@@ -214,8 +146,10 @@ class DeviceApi(object):
         终止目标应用在设备上的运行
         platform: Android, iOS
         """
-        if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM):
+        if self.platform == ANDROID_PLATFORM:
             stop_app(app_name=app_name, device_id=self.device_id, timeout=self.__timeout)
+        else:
+            self.dev.stop_app(app_name=app_name)
 
     @staticmethod
     def get_cv_template(
