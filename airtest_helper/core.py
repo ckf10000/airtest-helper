@@ -12,6 +12,7 @@
 import re
 import warnings
 import typing as t
+from time import sleep
 from poco.proxy import UIObjectProxy
 from airtest_helper.log import init_logging
 from airtest.utils.transform import TargetPos
@@ -150,6 +151,11 @@ class DeviceApi(object):
             stop_app(app_name=app_name, device_id=self.device_id, timeout=self.__timeout)
         else:
             self.dev.stop_app(app_name=app_name)
+
+    def restart_app(self, app_name: str) -> None:
+        self.stop_app(app_name=app_name)
+        sleep(1)
+        self.start_app(app_name=app_name)
 
     @staticmethod
     def get_cv_template(

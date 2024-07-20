@@ -13,7 +13,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='airtest-helper',
-    version='0.0.2',
+    version='0.0.3',
     description='This is my airtest helper package',
     long_description='This is my airtest helper package',
     author='ckf10000',
