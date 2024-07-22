@@ -11,7 +11,7 @@
 """
 import os
 import cv2
-from distutils.version import LooseVersion
+from packaging.version import Version
 from airtest.utils.resolution import cocos_min_strategy
 
 
@@ -22,7 +22,7 @@ class Settings(object):
     RESIZE_METHOD = staticmethod(cocos_min_strategy)
     # keypoint matching: kaze/brisk/akaze/orb, contrib: sift/surf/brief
     CVSTRATEGY = ["mstpl", "tpl", "sift", "brisk"]
-    if LooseVersion('3.4.2') < LooseVersion(cv2.__version__) < LooseVersion('4.4.0'):
+    if Version('3.4.2') < Version(cv2.__version__) < Version('4.4.0'):
         CVSTRATEGY = ["mstpl", "tpl", "brisk"]
     KEYPOINT_MATCHING_PREDICTION = True
     THRESHOLD = 0.7  # [0, 1]
