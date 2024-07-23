@@ -50,7 +50,8 @@ class DeviceProxy(object):
         self.__platform = platform
         self.__enable_log = enable_log
         self.__enable_debug = enable_debug
-        init_logging(loglevel=loglevel)
+        if self.__enable_log is True:
+            init_logging(loglevel=loglevel)
         self.__devices_conn = list()
         self.__init_conn_params()
         self.__init_device()
