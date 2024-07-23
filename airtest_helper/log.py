@@ -20,7 +20,7 @@ date_format = "%Y-%m-%d %H:%M:%S"
 logger = logging.getLogger("airtest")
 
 
-def init_logging(loglevel: str = "debug"):
+def init_logging(log_mode: str, loglevel: str = "debug"):
     if loglevel == "debug":
         level = logging.DEBUG
         # logger.setLevel(logging.DEBUG)
@@ -34,10 +34,10 @@ def init_logging(loglevel: str = "debug"):
         level = logging.ERROR
         # logger.setLevel(logging.ERROR)
     logger.setLevel(level)
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(fmt=log_format, datefmt=date_format)
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    if log_mode == "auto":
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(fmt=log_format, datefmt=date_format)
+        handler.setFormatter(formatter)
 
 
 # init_logging()

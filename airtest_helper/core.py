@@ -17,7 +17,7 @@ from poco.proxy import UIObjectProxy
 from airtest_helper.log import init_logging
 from airtest.utils.transform import TargetPos
 from poco.drivers.android.uiautomation import AndroidUiautomationPoco
-from airtest.core.api import auto_setup, device, Template, touch, find_all, exists
+from airtest.core.api import auto_setup, device, Template, touch, find_all, exists, sleep as air_sleep, stop_app
 
 from airtest_helper.setup import cli_setup
 from airtest_helper.settings import Settings as st
@@ -43,6 +43,7 @@ class DeviceProxy(object):
             loglevel: str = "error",
             enable_log: bool = True,
             enable_debug: bool = False,
+            log_mode: str = "auto",
             platform: str = ANDROID_PLATFORM
     ) -> None:
         self.__device_id = self.__format_device_id(device=device, port=port)
@@ -51,7 +52,7 @@ class DeviceProxy(object):
         self.__enable_log = enable_log
         self.__enable_debug = enable_debug
         if self.__enable_log is True:
-            init_logging(loglevel=loglevel)
+            init_logging(loglevel=loglevel, log_mode=log_mode)
         self.__devices_conn = list()
         self.__init_conn_params()
         self.__init_device()
@@ -151,7 +152,7 @@ class DeviceApi(object):
         if self.platform == ANDROID_PLATFORM:
             stop_app(app_name=app_name, device_id=self.device_id, timeout=self.__timeout)
         else:
-            self.dev.stop_app(app_name=app_name)
+            stop_app(app_name=app_name)
 
     def restart_app(self, app_name: str) -> None:
         self.stop_app(app_name=app_name)
@@ -329,7 +330,7 @@ class DeviceApi(object):
         result = None
         if self.platform in (ANDROID_PLATFORM, WINDOWS_PLATFORM, iOS_PLATFORM):
             # self.device.sleep(1)
-            result = self.dev.sleep(secs=secs)
+            result = air_sleep(secs=secs)
         return result or None
 
     def wait(
