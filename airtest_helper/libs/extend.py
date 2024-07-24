@@ -79,19 +79,9 @@ def get_poco_child(ui_object: UIObjectProxy, options: dict, child_index: int = -
     for i in range(loop):
         try:
             # 根据实际情况定位按钮元素
-            child_proxy = ui_object.child(name=name, **attrs)
-            if child_proxy:
-                if isinstance(child_proxy, list):
-                    if child_index >= 0:
-                        if len(child_proxy) >= child_index:
-                            return child_proxy[child_index]
-                        else:
-                            raise ValueError("The value of the child_index parameter is too large")
-                    else:
-                        return child_proxy[0]
-                else:
-                    if child_proxy.exists():
-                        return child_proxy
+            child_proxy = ui_object.child(name=name, **attrs)[child_index]
+            if child_proxy and child_proxy.exists():
+                return child_proxy
         except Exception as e:
             if is_log_traceback is True:
                 traceback.print_exc()
