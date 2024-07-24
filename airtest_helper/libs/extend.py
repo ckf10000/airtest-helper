@@ -16,7 +16,7 @@ from airtest_helper.log import logger
 from poco.drivers.android.uiautomation import AndroidUiautomationPoco
 
 
-def get_poco_factory(poco: AndroidUiautomationPoco, options: dict, loop: int, peroid: float = 0.5,
+def get_poco_factory(poco: AndroidUiautomationPoco, options: dict, loop: int = 1, peroid: float = 0.5,
                      **kwargs) -> UIObjectProxy:
     poco_proxy = None
     is_ignore = kwargs.get("is_ignore", True)
