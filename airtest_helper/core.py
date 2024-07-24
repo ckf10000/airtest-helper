@@ -105,12 +105,12 @@ class DeviceProxy(object):
                 compress=12
             )
 
-    @property
-    def poco_proxy(self) -> AndroidUiautomationPoco:
+    @classmethod
+    def poco_proxy(cls) -> AndroidUiautomationPoco:
         return AndroidUiautomationPoco(use_airtest_input=True, screenshot_each_action=False, force_restart=True)
 
-    @property
-    def phone(self):
+    @classmethod
+    def phone(cls):
         return device()
 
 
@@ -118,8 +118,8 @@ class DeviceApi(object):
     __timeout = 10
 
     def __init__(self, device: DeviceProxy):
-        self.dev = device.phone
-        self.poco = device.poco_proxy
+        self.dev = device.phone()
+        self.poco = device.poco_proxy()
         self.platform = device.platform
         self.device_id = device.device_id
 
